@@ -1,0 +1,214 @@
+#!/bin/bash
+
+LC_ALL=C.UTF-8
+
+TEMPO=5
+PREFIXO=Exercicio
+LISTA=`cat EXERCICIOS.txt`
+
+limpa() {
+	echo "Limpando..."
+	rm -rf tmp
+	for i in $LISTA ; do \
+		rm -f "$PREFIXO$i"
+	done
+	#rm -f jwdiff.class
+	rm -f *~
+}
+
+prepara() {
+	if [ ! -e input ] ; then
+		if [ -e ../input ] ; then
+			ln -s ../input .
+		else
+			if [ -e ../../input ] ; then
+				ln -s ../../input .
+			else
+				echo "ERRO: diretório \"input\" NÃO encontrado!"
+				exit 1
+			fi
+		fi
+	fi
+
+	if [ ! -e output ] ; then
+		if [ -e ../output ] ; then
+			ln -s ../output .
+		else
+			if [ -e ../../output ] ; then
+				ln -s ../../output .
+			else
+				echo "ERRO: diretório \"output\" NÃO encontrado!"
+				exit 1
+			fi
+		fi
+	fi
+
+	if [ ! -e jwdiff.java ] ; then
+		if [ -e ../jwdiff.java ] ; then
+			ln -s ../jwdiff.java .
+		else
+			if [ -e ../../jwdiff.java ] ; then
+				ln -s ../../jwdiff.java .
+			else
+				if [ -e ../../../jwdiff.java ] ; then
+					ln -s ../../../jwdiff.java .
+				else
+					echo "ERRO: arquivo \"jwdiff.java\" NÃO encontrado!"
+					exit 1
+				fi
+			fi
+		fi
+	fi
+	javac jwdiff.java
+
+	if [ ! -e tmp ] ; then
+		mkdir tmp
+	fi
+}
+
+testa() {
+	# Determina numero de testes
+	NUMTESTES=`ls input/$1_* | wc -l`
+	# Verifica se existe o arquivo $1.c
+	if [ ! -e $1.c ] ; then
+		echo "$1:" > tmp/$1.output
+		echo "- Arquivo '$1.c' NÃO encontrado..." >> tmp/$1.output
+		echo "ACERTOS = 0/$NUMTESTES [CÓDIGO-FONTE NÃO ENCONTRADO]" >> tmp/$1.output
+		echo "" >> tmp/$1.output
+		if [ $2 = "1" ] ; then
+			echo -n "- $1: " ; cat tmp/$1.output | grep ACERTOS
+		else
+			cat tmp/$1.output
+		fi
+		return
+	fi
+	# $1.c existe
+	# Verifica se existe o arquivo $1
+	if [ ! -e $1 ] || [ "$1" -ot "$1.c" ] ; then
+		# Compila
+		echo "Compilando '$1.c'..."
+		if grep -q -E "#[[:space:]]?include[[:space:]]?<math.h>" $1.c ;
+ then
+			cc -std=c99 $1.c -o $1 -lm 2> tmp/$1.err
+		else
+			cc -std=c99 $1.c -o $1 2> tmp/$1.err
+		fi
+		if [ -s tmp/$1.err ] ; then
+			:> $1
+			echo "$1:" > tmp/$1.output
+			echo "- Arquivo '$1.c' NÃO compila (há erros ou advertências)..." >> tmp/$1.output
+			echo "ACERTOS = 0/$NUMTESTES [ERRO DE COMPILAÇÃO]" >> tmp/$1.output
+			echo "" >> tmp/$1.output
+			if [ $2 = "1" ] ; then
+				echo -n "- $1: " ; cat tmp/$1.output | grep ACERTOS
+			else
+				cat tmp/$1.output
+			fi
+			return
+		fi
+	fi
+	# $1 existe
+	# Verifica se existe o arquivo tmp/$1.output
+	if [ ! -e tmp/$1.output ] || [ "tmp/$1.output" -ot "$1" ] ; then
+		echo "Testando '$1'..."
+		echo "$1:" > tmp/$1.output
+		TEMPOTOTAL=0
+		ACERTOS=0
+		i=1
+		while [ $i -le $NUMTESTES ]; do
+			echo -n "- Teste $i: " >> tmp/$1.output
+			if [ -e /usr/bin/time ] ; then
+				/usr/bin/time --format="%e" --quiet --output=tmp/$1_$i.time ./$1 < input/$1_$i > tmp/$1_$i 2> tmp/$1_$i.err
+			else
+				TIMEFORMAT="%2R"
+				{ time ./$1 < input/$1_$i > tmp/$1_$i 2> tmp/$1_$i.err ; } 2> tmp/$1_$i.time
+			fi
+			comparacao=$(java jwdiff output/$1_$i tmp/$1_$i)
+			if [ $? -eq 0 ] ; then
+				TEMPOEXEC=`cat tmp/$1_$i.time`
+				TEMPOTOTAL=$(echo "$TEMPOTOTAL + $TEMPOEXEC" | bc)
+				TIMEOUT=$(echo "$TEMPOEXEC > $TEMPO" | bc)
+				if [ $TIMEOUT = 1 ] ; then
+				        echo "ERRO [TIME]" >> tmp/$1.output
+				else
+				        echo "OK [$TEMPOEXEC]" >> tmp/$1.output
+					ACERTOS=`expr $ACERTOS + 1`
+				fi
+			else
+			        echo "ERRO [DIFF]" >> tmp/$1.output
+			fi
+			i=`expr $i + 1`
+		done
+		echo "ACERTOS = $ACERTOS/$NUMTESTES [$TEMPOTOTAL]" >> tmp/$1.output
+		echo "" >> tmp/$1.output
+	fi
+	if [ $2 = "1" ] ; then
+		echo -n "- $1: " ; cat tmp/$1.output | grep ACERTOS
+	else
+		cat tmp/$1.output
+	fi
+}
+
+prepara
+N=0
+SHORT=0
+SCORE=0
+for ARG in $* ; do
+	if [ "$ARG" = clean ] ; then
+		N=`expr $N + 1`
+		limpa
+		exit 0
+	elif [ "$ARG" = short ] ; then
+		# N=`expr $N + 1`
+		SHORT=1
+	elif [ "$ARG" = score ] ; then
+		# N=`expr $N + 1`
+		SCORE=1
+	else
+		OLD="$N"
+		for i in $LISTA ; do
+			if [ "$i" = "$ARG" ] ; then
+				N=`expr $N + 1`
+				testa "$PREFIXO$i" "$SHORT"
+			fi
+		done
+		if [ "$OLD" = "$N" ] ; then
+			echo "ERRO: argumento $ARG invalido!"
+			exit 1
+		fi
+	fi
+done
+
+if [ ! "$N" = "0" ] ; then
+	exit 0
+fi
+
+for i in $LISTA ; do \
+	testa "$PREFIXO$i" "$SHORT"
+done
+
+EXERCICIOS=0
+EXERCICIOS_OK=0
+TESTES=0
+TESTES_OK=0
+if [ "$SCORE" = 1 ] ; then
+	for i in $LISTA ; do
+		EXERCICIOS=`expr $EXERCICIOS + 1`
+		ACERTOS_EX=`grep ACERTOS tmp/$PREFIXO$i.output | cut -d " " -f 3 | cut -d "/" -f 1`
+		TESTES_EX=`grep ACERTOS tmp/$PREFIXO$i.output | cut -d " " -f 3 | cut -d "/" -f 2`
+		if [ "$ACERTOS_EX" = "$TESTES_EX" ] ; then
+			EXERCICIOS_OK=`expr $EXERCICIOS_OK + 1`
+		fi
+		TESTES=`expr $TESTES + $TESTES_EX`
+		TESTES_OK=`expr $TESTES_OK + $ACERTOS_EX`
+	done
+	SCORE_EXERCICIOS=`echo "scale=2;( $EXERCICIOS_OK * 100.0 ) / $EXERCICIOS" | bc`
+	SCORE_TESTES=`echo "scale=2;( $TESTES_OK * 100.0 ) / $TESTES" | bc`
+	echo "ESCORE = $SCORE_EXERCICIOS% DOS EXERCÍCIOS CORRETOS ($SCORE_TESTES% DOS TESTES CORRETOS)"
+	
+#	TESTES=`grep ACERTOS tmp/*.output | wc -l`
+#	ACERTOS=`grep ACERTOS tmp/*.output | grep "10/10" | wc -l`
+#	NOTA=`echo "scale=2;( $ACERTOS * 10.0 ) / $TESTES" | bc`
+#	echo "NOTA = $NOTA ($ACERTOS de $TESTES)"
+fi
+
