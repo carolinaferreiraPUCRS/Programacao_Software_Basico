@@ -1,7 +1,6 @@
-// app3.cpp (Roland Teodorowitsch; 15 maio 2025)
-
 #include <stdio.h>
 #include "filmes.h"
+#include "diretores.h"
 
 int main() {
   if ( !diretores_carrega("diretores.txt") ) return 0;
